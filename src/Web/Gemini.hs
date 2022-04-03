@@ -20,6 +20,7 @@ module Web.Gemini
     -- * Helpers
     , protectedGeminiRequest
     , createSignature
+    , makeNonce
     ) where
 
 import           Control.Exception.Safe         ( MonadCatch
@@ -46,6 +47,7 @@ import           Data.ByteString.Base64         ( encodeBase64 )
 import           Data.Scientific                ( Scientific )
 import           Data.Text                      ( Text )
 import           Data.Text.Encoding             ( encodeUtf8 )
+import           Data.Time                      ( secondsToNominalDiffTime )
 import           Data.Time.Clock.POSIX          ( POSIXTime
                                                 , getPOSIXTime
                                                 )
@@ -74,7 +76,6 @@ import qualified Data.Aeson.KeyMap             as KM
 import qualified Data.ByteString               as BS
 import qualified Data.ByteString.Char8         as BC
 import qualified Data.ByteString.Lazy          as LBS
-import           Data.Time                      ( secondsToNominalDiffTime )
 
 -- | Required configuration data for making requests to the Gemini API.
 data GeminiConfig = GeminiConfig
@@ -101,7 +102,7 @@ instance MonadHttp GeminiApiM where
 
 -- | Fetch the details on a supported symbol.
 getSymbolDetails :: MonadHttp m => Text -> m SymbolDetails
-getSymbolDetails symbol = do
+getSymbolDetails symbol =
     responseBody
         <$> req
                 GET
@@ -140,7 +141,7 @@ instance FromJSON SymbolDetails where
 -- | Fetch all my Gemini Trades
 getMyTrades :: GeminiApiM [Trade]
 getMyTrades = do
-    nonce <- truncate . (1000 *) <$> liftIO getPOSIXTime
+    nonce <- makeNonce
     -- TODO: take optional start & optional end, use start to set
     -- `timestamp`, use end to determine when to stop fetching.
     -- TODO: if response gives 500 results, shift start time & continue
@@ -191,7 +192,7 @@ instance FromJSON Trade where
 -- | Fetch all my Gemini Transfers
 getMyTransfers :: GeminiApiM [Transfer]
 getMyTransfers = do
-    nonce <- truncate . (1000 *) <$> liftIO getPOSIXTime
+    nonce <- makeNonce
     -- TODO: take optional start & optional end, use start to set
     -- `timestamp`, use end to determine when to stop fetching.
     -- TODO: if response gives 500 results, shift start time & continue
@@ -207,6 +208,7 @@ getMyTransfers = do
                 (https "api.gemini.com" /: "v1" /: "transfers")
                 parameters
 
+-- | A single fiat or cryptocurrency transfer, credit, deposit, or withdrawal.
 data Transfer = Transfer
     { trId        :: Integer
     , trType      :: Text
@@ -272,3 +274,9 @@ createSignature cfg body =
     let digest =
             hmacGetDigest @SHA384 $ hmac (encodeUtf8 $ gcApiSecret cfg) body
     in  BC.pack $ show digest
+
+
+-- | Generate a nonce for authorized requests from the current timestamp in
+-- milliseconds.
+makeNonce :: MonadIO m => m Integer
+makeNonce = truncate . (1000 *) <$> liftIO getPOSIXTime
