@@ -31,6 +31,7 @@ library
   exposed-modules:
       Lib
       Lib.Main
+      Web.Gemini
   other-modules:
       Paths_gemini_exports
   hs-source-dirs:
@@ -44,10 +45,20 @@ library
       TypeApplications
       TypeOperators
       ViewPatterns
-  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
   build-depends:
-      base >=4.7 && <5
+      aeson <3
+    , base >=4.7 && <5
+    , base64 <1
+    , bytestring <1
     , cmdargs >=0.10 && <1
+    , cryptonite <1
+    , mtl <3
+    , req <4
+    , safe-exceptions <1
+    , scientific <1
+    , text <3
+    , time <2
   default-language: Haskell2010
 
 executable gemini-exports

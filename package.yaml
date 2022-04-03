@@ -60,8 +60,20 @@ dependencies:
 library:
     source-dirs:
         src
+    ghc-options:
+        - -Wunused-packages
     dependencies:
+        - aeson < 3
+        - base64 < 1
+        - bytestring < 1
         - cmdargs >= 0.10 && < 1
+        - cryptonite < 1
+        - mtl < 3
+        - req < 4
+        - safe-exceptions < 1
+        - scientific < 1
+        - text < 3
+        - time < 2
 
 executables:
     gemini-exports:
