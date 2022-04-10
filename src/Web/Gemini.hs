@@ -186,7 +186,7 @@ instance FromJSON Trade where
         tFeeAmount   <- read <$> o .: "fee_amount"
         tIsBuy       <- (== ("Buy" :: String)) <$> o .: "type"
         tIsAggressor <- o .: "aggressor"
-        tTimestamp   <- o .: "timestamp"
+        tTimestamp   <- (/ 1000.0) <$> o .: "timestampms"
         tOrderId     <- o .: "order_id"
         return Trade { .. }
 
