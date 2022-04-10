@@ -51,6 +51,7 @@ import           Data.Time                      ( secondsToNominalDiffTime )
 import           Data.Time.Clock.POSIX          ( POSIXTime
                                                 , getPOSIXTime
                                                 )
+import           Data.Version                   ( showVersion )
 import           GHC.Generics                   ( Generic )
 import           Network.HTTP.Req               ( (/:)
                                                 , GET(..)
@@ -59,6 +60,7 @@ import           Network.HTTP.Req               ( (/:)
                                                 , JsonResponse
                                                 , MonadHttp(..)
                                                 , NoReqBody(..)
+                                                , Option
                                                 , POST(..)
                                                 , ProvidesBody
                                                 , Req
@@ -71,6 +73,8 @@ import           Network.HTTP.Req               ( (/:)
                                                 , responseBody
                                                 , runReq
                                                 )
+
+import           Paths_gemini_exports           ( version )
 
 import qualified Data.Aeson.KeyMap             as KM
 import qualified Data.ByteString               as BS
@@ -114,7 +118,7 @@ getSymbolDetails symbol =
                 )
                 NoReqBody
                 jsonResponse
-                mempty
+                userAgentHeader
 
 -- | Currency & Precision details for a 'Trade' Symbol.
 data SymbolDetails = SymbolDetails
@@ -258,6 +262,7 @@ protectedGeminiRequest method url body = do
             , header "X-GEMINI-PAYLOAD"   payload
             , header "X-GEMINI-SIGNATURE" signature
             , header "Cache-Control"      "no-cache"
+            , userAgentHeader
             ]
     req method url NoReqBody jsonResponse authorizedOptions
 
@@ -280,3 +285,9 @@ createSignature cfg body =
 -- milliseconds.
 makeNonce :: MonadIO m => m Integer
 makeNonce = truncate . (1000 *) <$> liftIO getPOSIXTime
+
+
+-- | Generate a @User-Agent@ header with the library's current version.
+userAgentHeader :: Option scheme
+userAgentHeader =
+    header "User-Agent" . BC.pack $ "gemini-exports/v" <> showVersion version
