@@ -1,6 +1,6 @@
 module Main where
 
-import           Lib.Main
+import           Console.Gemini.Exports.Main
 
 
 main :: IO ()

@@ -29,8 +29,7 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
-      Lib.Main
+      Console.Gemini.Exports.Main
       Web.Gemini
   other-modules:
       Paths_gemini_exports
@@ -51,7 +50,9 @@ library
     , base >=4.7 && <5
     , base64 <1
     , bytestring <1
+    , cassava <1
     , cmdargs >=0.10 && <1
+    , containers <1
     , cryptonite <1
     , mtl <3
     , req <4

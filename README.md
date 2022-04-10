@@ -8,8 +8,18 @@ Generate CSV Exports of your Gemini Trades.
 Requires [`stack`][get-stack]:
 
 ```sh
-stack run
+$ stack run -- -k <API_KEY> -s <API_SECRET>
+time,base-asset,quote-asset,type,price,quantity,total,fee,fee-currency,trade-id
+2022-04-20 04:20:00,GUSD,USD,Buy,1.0,9001.0,9001.0,0.0,USD,900142424242
+$ stack run -- --help
 ```
+
+TODO:
+
+* Include deposits/withdrawals/credits/earn-interest in exports
+* Limit output by year
+* Paginated api requests
+* Env var + config file support
 
 [get-stack]: https://docs.haskellstack.org/en/stable/README/
 
