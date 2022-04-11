@@ -17,6 +17,10 @@ module Web.Gemini
     -- ** Transfer History
     , getMyTransfers
     , Transfer(..)
+    -- ** Earn History
+    , getMyEarnTransactions
+    , EarnHistory(..)
+    , EarnTransaction(..)
     -- * Helpers
     , protectedGeminiRequest
     , createSignature
@@ -235,6 +239,61 @@ instance FromJSON Transfer where
         trPurpose   <- o .:? "purpose"
         trTimestamp <- (/ 1000) <$> o .: "timestampms"
         return Transfer { .. }
+
+
+-- EARN HISTORY
+
+-- | Fetch all my Gemini Earn Transactions
+getMyEarnTransactions :: GeminiApiM [EarnHistory]
+getMyEarnTransactions = do
+    nonce <- makeNonce
+    -- TODO: take optional start & end time, limit results to only those
+    -- within range.
+    -- TODO: if response gives 500 results, bump start time & re-fetch
+    -- until no results.
+    let parameters = KM.fromList
+            [ ("request", String "/v1/earn/history")
+            , ("nonce"  , Number $ fromInteger nonce)
+            , ("limit"  , Number 500)
+            ]
+    responseBody
+        <$> protectedGeminiRequest
+                POST
+                (https "api.gemini.com" /: "v1" /: "earn" /: "history")
+                parameters
+
+-- | Earn Transactions grouped by a Provider/Borrower.
+data EarnHistory = EarnHistory
+    { ehProviderId   :: Text
+    , ehTransactions :: [EarnTransaction]
+    }
+
+instance FromJSON EarnHistory where
+    parseJSON = withObject "EarnHistory"
+        $ \o -> EarnHistory <$> o .: "providerId" <*> o .: "transactions"
+
+-- | A single Earn transaction.
+data EarnTransaction = EarnTransaction
+    { etId             :: Text
+    , etType           :: Text
+    , etAmountCurrency :: Text
+    , etAmount         :: Scientific
+    , etPriceCurrency  :: Maybe Text
+    , etPrice          :: Maybe Scientific
+    , etTimestamp      :: POSIXTime
+    }
+    deriving (Show, Read, Eq, Ord, Generic)
+
+instance FromJSON EarnTransaction where
+    parseJSON = withObject "EarnTransaction" $ \o -> do
+        etId             <- o .: "earnTransactionId"
+        etType           <- o .: "transactionType"
+        etAmountCurrency <- o .: "amountCurrency"
+        etAmount         <- o .: "amount"
+        etPriceCurrency  <- o .:? "priceCurrency"
+        etPrice          <- o .:? "priceAmount"
+        etTimestamp      <- (/ 1000.0) <$> o .: "dateTime"
+        return EarnTransaction { .. }
 
 
 -- UTILS
