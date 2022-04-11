@@ -47,7 +47,6 @@ import           Data.ByteString.Base64         ( encodeBase64 )
 import           Data.Scientific                ( Scientific )
 import           Data.Text                      ( Text )
 import           Data.Text.Encoding             ( encodeUtf8 )
-import           Data.Time                      ( secondsToNominalDiffTime )
 import           Data.Time.Clock.POSIX          ( POSIXTime
                                                 , getPOSIXTime
                                                 )
@@ -199,7 +198,7 @@ getMyTransfers = do
     nonce <- makeNonce
     -- TODO: take optional start & optional end, use start to set
     -- `timestamp`, use end to determine when to stop fetching.
-    -- TODO: if response gives 500 results, shift start time & continue
+    -- TODO: if response gives 50 results, shift start time & continue
     -- fetching until received empty list.
     let parameters = KM.fromList
             [ ("request"        , String "/v1/transfers")
@@ -220,6 +219,7 @@ data Transfer = Transfer
     , trCurrency  :: Text
     , trAmount    :: Scientific
     , trMethod    :: Maybe Text
+    , trPurpose   :: Maybe Text
     , trTimestamp :: POSIXTime
     }
     deriving (Show, Read, Eq, Ord, Generic)
@@ -232,8 +232,8 @@ instance FromJSON Transfer where
         trCurrency  <- o .: "currency"
         trAmount    <- read <$> o .: "amount"
         trMethod    <- o .:? "method"
-        trTimestamp <-
-            secondsToNominalDiffTime . (/ 1000) <$> o .: "timestampms"
+        trPurpose   <- o .:? "purpose"
+        trTimestamp <- (/ 1000) <$> o .: "timestampms"
         return Transfer { .. }
 
 
