@@ -15,6 +15,12 @@ import           Data.Maybe                     ( catMaybes
                                                 , fromMaybe
                                                 )
 import           Data.Text                      ( Text )
+import           Data.Time                      ( LocalTime(..)
+                                                , ZonedTime(..)
+                                                , toGregorian
+                                                , utcToZonedTime
+                                                )
+import           Data.Time.Clock.POSIX          ( posixSecondsToUTCTime )
 import           Data.Version                   ( showVersion )
 import           System.Console.CmdArgs         ( (&=)
                                                 , Data
@@ -62,12 +68,26 @@ run cfgArgs = do
         earnTransactions <- concatMap ehTransactions <$> getMyEarnTransactions
         earnExport       <- mapM (makeExportData . EarnExport) earnTransactions
         return $ tradeExport <> transferExport <> earnExport
-    let
-        csvData = makeExportCsv
-            $ L.sortOn (getExportLineTimestamp . edLine) exportData
+    let csvData =
+            makeExportCsv
+                $ L.sortOn (getExportLineTimestamp . edLine)
+                $ filterYear year exportData
     if outputFile == "-"
         then LBS.putStrLn csvData
         else LBS.writeFile outputFile csvData
+  where
+    filterYear = \case
+        Nothing -> id
+        Just y  -> filter
+            (\(ExportData tz ed) ->
+                (\(edY, _, _) -> edY == y)
+                    . toGregorian
+                    . localDay
+                    . zonedTimeToLocalTime
+                    . utcToZonedTime tz
+                    . posixSecondsToUTCTime
+                    $ getExportLineTimestamp ed
+            )
 
 -- | Print some text to stderr and then exit with an error.
 exitWithError :: String -> IO a
@@ -77,6 +97,7 @@ exitWithError msg = hPutStrLn stderr ("[ERROR] " <> msg) >> exitFailure
 data AppConfig = AppConfig
     { geminiCfg  :: GeminiConfig
     , outputFile :: FilePath
+    , year       :: Maybe Integer
     }
     deriving (Show, Read, Eq, Ord)
 
@@ -94,7 +115,10 @@ makeConfig Args {..} = do
         $   argApiSecret
         <|> envApiSecret
     let geminiCfg = GeminiConfig { .. }
-    return $ AppConfig { outputFile = fromMaybe "-" argOutputFile, .. }
+    return $ AppConfig { outputFile = fromMaybe "-" argOutputFile
+                       , year       = argYear
+                       , ..
+                       }
   where
     errorIfNothing :: String -> Maybe a -> IO a
     errorIfNothing msg = maybe (exitWithError msg) return
@@ -105,6 +129,7 @@ data Args = Args
     { argApiKey     :: Maybe Text
     , argApiSecret  :: Maybe Text
     , argOutputFile :: Maybe FilePath
+    , argYear       :: Maybe Integer
     }
     deriving (Show, Read, Eq, Data, Typeable)
 
@@ -136,6 +161,12 @@ argSpec =
                               &= name "output-file"
                               &= explicit
                               &= typ "FILE"
+            , argYear       = Nothing
+                              &= help "Limit transactions to given year."
+                              &= name "y"
+                              &= name "year"
+                              &= explicit
+                              &= typ "YYYY"
             }
         &= summary
                (  "gemini-exports v"

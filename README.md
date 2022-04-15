@@ -16,9 +16,8 @@ $ stack run -- --help
 
 TODO:
 
-* Limit output by year
-* Paginated api requests
-* Env var + config file support
+* Paginated api requests (w/ start/stop dates)
+* Config file support
 
 [get-stack]: https://docs.haskellstack.org/en/stable/README/
 
