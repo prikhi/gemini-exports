@@ -67,10 +67,7 @@ instance DefaultOrdered ExportData where
 instance ToNamedRecord ExportData where
     toNamedRecord (ExportData tz lineData) = namedRecord $ case lineData of
         TradeExport Trade {..} SymbolDetails {..} ->
-            [ "time" .= formatTime
-                defaultTimeLocale
-                "%F %T%Q"
-                (utcToZonedTime tz $ posixSecondsToUTCTime tTimestamp)
+            [ "time" .= formatTimestamp tTimestamp
             , "base-asset" .= sdBaseCurrency
             , "quote-asset" .= sdQuoteCurrency
             , "type" .= if tIsBuy then "Buy" else ("Sell" :: Text)
@@ -83,10 +80,7 @@ instance ToNamedRecord ExportData where
             , "trade-id" .= tId
             ]
         TransferExport Transfer {..} ->
-            [ "time" .= formatTime
-                defaultTimeLocale
-                "%F %T%Q"
-                (utcToZonedTime tz $ posixSecondsToUTCTime trTimestamp)
+            [ "time" .= formatTimestamp trTimestamp
             , "base-asset" .= trCurrency
             , "quote-asset" .= empty
             , "type" .= trType
@@ -99,10 +93,7 @@ instance ToNamedRecord ExportData where
             , "trade-id" .= trId
             ]
         EarnExport EarnTransaction {..} ->
-            [ "time" .= formatTime
-                defaultTimeLocale
-                "%F %T%Q"
-                (utcToZonedTime tz $ posixSecondsToUTCTime etTimestamp)
+            [ "time" .= formatTimestamp etTimestamp
             , "base-asset" .= etAmountCurrency
             , "quote-asset" .= fromMaybe empty etPriceCurrency
             , "type" .= ("Earn " <> etType)
@@ -124,6 +115,11 @@ instance ToNamedRecord ExportData where
         toDescr = \case
             (Just m, Just p) -> m <> " " <> p
             (m     , p     ) -> fromMaybe "" $ m <|> p
+        formatTimestamp :: POSIXTime -> String
+        formatTimestamp =
+            formatTime defaultTimeLocale "%F %T%Q"
+                . utcToZonedTime tz
+                . posixSecondsToUTCTime
 
 -- | Determine the 'TimeZone' for the 'ExportLine' & return both as an
 -- 'ExportData'.
