@@ -9,6 +9,7 @@ module Console.Gemini.Exports.Main
     , Args(..)
     ) where
 
+import           Control.Applicative            ( (<|>) )
 import           Control.Monad                  ( forM )
 import           Data.Maybe                     ( catMaybes
                                                 , fromMaybe
@@ -28,6 +29,7 @@ import           System.Console.CmdArgs         ( (&=)
                                                 , summary
                                                 , typ
                                                 )
+import           System.Environment             ( lookupEnv )
 import           System.Exit                    ( exitFailure )
 import           System.IO                      ( hPutStrLn
                                                 , stderr
@@ -40,6 +42,7 @@ import           Web.Gemini
 import qualified Data.ByteString.Lazy.Char8    as LBS
 import qualified Data.List                     as L
 import qualified Data.Map.Strict               as M
+import qualified Data.Text                     as T
 
 
 -- | Run the executable.
@@ -66,6 +69,10 @@ run cfgArgs = do
         then LBS.putStrLn csvData
         else LBS.writeFile outputFile csvData
 
+-- | Print some text to stderr and then exit with an error.
+exitWithError :: String -> IO a
+exitWithError msg = hPutStrLn stderr ("[ERROR] " <> msg) >> exitFailure
+
 
 data AppConfig = AppConfig
     { geminiCfg  :: GeminiConfig
@@ -75,18 +82,22 @@ data AppConfig = AppConfig
 
 makeConfig :: Args -> IO AppConfig
 makeConfig Args {..} = do
-    gcApiKey <- case argApiKey of
-        Nothing ->
-            hPutStrLn stderr "[ERROR] Pass a Gemini API Key with `-k`."
-                >> exitFailure
-        Just k -> return k
-    gcApiSecret <- case argApiSecret of
-        Nothing ->
-            hPutStrLn stderr "[ERROR] Pass a Gemini API Secret with `-s`."
-                >> exitFailure
-        Just s -> return s
+    envApiKey <- fmap T.pack <$> lookupEnv "GEMINI_API_KEY"
+    gcApiKey  <-
+        errorIfNothing "Pass a Gemini API Key with `-k` or $GEMINI_API_KEY."
+        $   argApiKey
+        <|> envApiKey
+    envApiSecret <- fmap T.pack <$> lookupEnv "GEMINI_API_SECRET"
+    gcApiSecret  <-
+        errorIfNothing
+            "Pass a Gemini API Secret with `-s` or $GEMINI_API_SECRET."
+        $   argApiSecret
+        <|> envApiSecret
     let geminiCfg = GeminiConfig { .. }
     return $ AppConfig { outputFile = fromMaybe "-" argOutputFile, .. }
+  where
+    errorIfNothing :: String -> Maybe a -> IO a
+    errorIfNothing msg = maybe (exitWithError msg) return
 
 
 -- | CLI arguments supported by the executable.
