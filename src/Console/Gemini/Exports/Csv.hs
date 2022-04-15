@@ -21,6 +21,7 @@ import           Data.Csv                       ( (.=)
                                                 )
 import           Data.Maybe                     ( fromMaybe )
 import           Data.Scientific                ( FPFormat(Fixed)
+                                                , Scientific
                                                 , formatScientific
                                                 )
 import           Data.Text                      ( Text
@@ -72,10 +73,10 @@ instance ToNamedRecord ExportData where
             , "quote-asset" .= sdQuoteCurrency
             , "type" .= if tIsBuy then "Buy" else ("Sell" :: Text)
             , "description" .= empty
-            , "price" .= formatScientific Fixed Nothing tPrice
-            , "quantity" .= formatScientific Fixed Nothing tAmount
-            , "total" .= formatScientific Fixed Nothing (tPrice * tAmount)
-            , "fee" .= formatScientific Fixed Nothing tFeeAmount
+            , "price" .= formatDecimal tPrice
+            , "quantity" .= formatDecimal tAmount
+            , "total" .= formatDecimal (tPrice * tAmount)
+            , "fee" .= formatDecimal tFeeAmount
             , "fee-currency" .= tFeeCurrency
             , "trade-id" .= tId
             ]
@@ -86,8 +87,8 @@ instance ToNamedRecord ExportData where
             , "type" .= trType
             , "description" .= toDescr (trMethod, trPurpose)
             , "price" .= empty
-            , "quantity" .= formatScientific Fixed Nothing trAmount
-            , "total" .= formatScientific Fixed Nothing trAmount
+            , "quantity" .= formatDecimal trAmount
+            , "total" .= formatDecimal trAmount
             , "fee" .= empty
             , "fee-currency" .= empty
             , "trade-id" .= trId
@@ -98,28 +99,30 @@ instance ToNamedRecord ExportData where
             , "quote-asset" .= fromMaybe empty etPriceCurrency
             , "type" .= ("Earn " <> etType)
             , "description" .= empty
-            , "price"
-                .= maybe empty (pack . formatScientific Fixed Nothing) etPrice
-            , "quantity" .= formatScientific Fixed Nothing etAmount
-            , "total"
-                .= maybe
-                       empty
-                       (pack . formatScientific Fixed Nothing . (* etAmount))
-                       etPrice
+            , "price" .= maybe empty formatDecimal etPrice
+            , "quantity" .= formatDecimal etAmount
+            , "total" .= maybe empty (formatDecimal . (* etAmount)) etPrice
             , "fee" .= empty
             , "fee-currency" .= empty
             , "trade-id" .= etId
             ]
       where
+        -- Render a transfer description by combining the optional method
+        -- & purpose fields.
         toDescr :: (Maybe Text, Maybe Text) -> Text
         toDescr = \case
             (Just m, Just p) -> m <> " " <> p
             (m     , p     ) -> fromMaybe "" $ m <|> p
+        -- Convert a timestamp into a localtime with the line's timezone
+        -- & render it in `YYYY-MM-DD HH:MM:SS.nnnnnnnnn` format.`
         formatTimestamp :: POSIXTime -> String
         formatTimestamp =
             formatTime defaultTimeLocale "%F %T%Q"
                 . utcToZonedTime tz
                 . posixSecondsToUTCTime
+        -- Render a decimal number with the minimum precision neccesary..
+        formatDecimal :: Scientific -> Text
+        formatDecimal = pack . formatScientific Fixed Nothing
 
 -- | Determine the 'TimeZone' for the 'ExportLine' & return both as an
 -- 'ExportData'.
