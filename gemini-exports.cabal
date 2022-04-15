@@ -29,6 +29,7 @@ source-repository head
 
 library
   exposed-modules:
+      Console.Gemini.Exports.Csv
       Console.Gemini.Exports.Main
       Web.Gemini
   other-modules:

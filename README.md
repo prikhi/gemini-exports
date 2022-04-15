@@ -16,7 +16,6 @@ $ stack run -- --help
 
 TODO:
 
-* Include deposits/withdrawals/credits/earn-interest in exports
 * Limit output by year
 * Paginated api requests
 * Env var + config file support
