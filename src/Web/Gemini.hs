@@ -7,6 +7,7 @@ module Web.Gemini
     ( GeminiApiM
     , runApi
     , GeminiConfig(..)
+    , GeminiError(..)
     -- * Requests
     -- ** Symbol Details
     , getSymbolDetails
@@ -23,12 +24,15 @@ module Web.Gemini
     , EarnTransaction(..)
     -- * Helpers
     , protectedGeminiRequest
+    , retryWithRateLimit
     , createSignature
     , makeNonce
     ) where
 
+import           Control.Concurrent             ( threadDelay )
 import           Control.Exception.Safe         ( MonadCatch
                                                 , MonadThrow
+                                                , try
                                                 )
 import           Control.Monad.Reader           ( MonadIO(liftIO)
                                                 , MonadReader(ask)
@@ -42,23 +46,36 @@ import           Crypto.MAC.HMAC                ( hmac
 import           Data.Aeson                     ( (.:)
                                                 , (.:?)
                                                 , FromJSON(..)
-                                                , ToJSON
+                                                , ToJSON(..)
                                                 , Value(..)
+                                                , eitherDecode
                                                 , encode
                                                 , withObject
                                                 )
 import           Data.ByteString.Base64         ( encodeBase64 )
+import           Data.Maybe                     ( fromMaybe
+                                                , listToMaybe
+                                                , mapMaybe
+                                                )
+import           Data.Ratio                     ( (%) )
 import           Data.Scientific                ( Scientific )
 import           Data.Text                      ( Text )
 import           Data.Text.Encoding             ( encodeUtf8 )
+import           Data.Time                      ( UTCTime )
 import           Data.Time.Clock.POSIX          ( POSIXTime
                                                 , getPOSIXTime
+                                                , utcTimeToPOSIXSeconds
                                                 )
 import           Data.Version                   ( showVersion )
 import           GHC.Generics                   ( Generic )
+import           Network.HTTP.Client            ( HttpException(..)
+                                                , HttpExceptionContent(..)
+                                                , responseStatus
+                                                )
 import           Network.HTTP.Req               ( (/:)
                                                 , GET(..)
                                                 , HttpBodyAllowed
+                                                , HttpException(..)
                                                 , HttpMethod(..)
                                                 , JsonResponse
                                                 , MonadHttp(..)
@@ -76,6 +93,8 @@ import           Network.HTTP.Req               ( (/:)
                                                 , responseBody
                                                 , runReq
                                                 )
+import           Network.HTTP.Types             ( Status(..) )
+import           Text.Read                      ( readMaybe )
 
 import           Paths_gemini_exports           ( version )
 
@@ -83,6 +102,8 @@ import qualified Data.Aeson.KeyMap             as KM
 import qualified Data.ByteString               as BS
 import qualified Data.ByteString.Char8         as BC
 import qualified Data.ByteString.Lazy          as LBS
+import qualified Data.Text                     as T
+
 
 -- | Required configuration data for making requests to the Gemini API.
 data GeminiConfig = GeminiConfig
@@ -103,6 +124,17 @@ runApi cfg = runReq defaultHttpConfig . flip runReaderT cfg . runGeminiApiM
 -- | Use 'MonadHttp' from the 'Req' monad.
 instance MonadHttp GeminiApiM where
     handleHttpException = GeminiApiM . lift . handleHttpException
+
+-- | Potential error response body from the API.
+data GeminiError = GeminiError
+    { geReason  :: Text
+    , geMessage :: Text
+    }
+    deriving (Show, Read, Eq, Ord)
+
+instance FromJSON GeminiError where
+    parseJSON = withObject "GeminiError"
+        $ \o -> GeminiError <$> o .: "reason" <*> o .: "message"
 
 
 -- SYMBOL DETAILS
@@ -146,23 +178,26 @@ instance FromJSON SymbolDetails where
 -- TRADE HISTORY
 
 -- | Fetch all my Gemini Trades
-getMyTrades :: GeminiApiM [Trade]
-getMyTrades = do
-    nonce <- makeNonce
-    -- TODO: take optional start & optional end, use start to set
-    -- `timestamp`, use end to determine when to stop fetching.
-    -- TODO: if response gives 500 results, shift start time & continue
-    -- fetching until received empty list.
-    let parameters = KM.fromList
-            [ ("request"     , String "/v1/mytrades")
-            , ("nonce"       , Number $ fromInteger nonce)
-            , ("limit_trades", Number 500)
-            ]
-    responseBody
-        <$> protectedGeminiRequest
-                POST
-                (https "api.gemini.com" /: "v1" /: "mytrades")
-                parameters
+getMyTrades
+    :: Maybe (UTCTime, UTCTime)
+    -- ^ Optional @(start, end)@ ranges for fetching.
+    -> GeminiApiM [Trade]
+getMyTrades = fetchAllPages getTradeBatch tTimestamp
+  where
+    getTradeBatch :: Integer -> GeminiApiM [Trade]
+    getTradeBatch timestamp = do
+        nonce <- makeNonce
+        let parameters = KM.fromList
+                [ ("request"     , String "/v1/mytrades")
+                , ("nonce"       , toJSON nonce)
+                , ("timestamp"   , toJSON $ timestampToSeconds timestamp)
+                , ("limit_trades", Number 500)
+                ]
+        responseBody
+            <$> protectedGeminiRequest
+                    POST
+                    (https "api.gemini.com" /: "v1" /: "mytrades")
+                    parameters
 
 -- | A single, completed Trade.
 data Trade = Trade
@@ -197,23 +232,26 @@ instance FromJSON Trade where
 -- TRANSFER HISTORY
 
 -- | Fetch all my Gemini Transfers
-getMyTransfers :: GeminiApiM [Transfer]
-getMyTransfers = do
-    nonce <- makeNonce
-    -- TODO: take optional start & optional end, use start to set
-    -- `timestamp`, use end to determine when to stop fetching.
-    -- TODO: if response gives 50 results, shift start time & continue
-    -- fetching until received empty list.
-    let parameters = KM.fromList
-            [ ("request"        , String "/v1/transfers")
-            , ("nonce"          , Number $ fromInteger nonce)
-            , ("limit_transfers", Number 50)
-            ]
-    responseBody
-        <$> protectedGeminiRequest
-                POST
-                (https "api.gemini.com" /: "v1" /: "transfers")
-                parameters
+getMyTransfers
+    :: Maybe (UTCTime, UTCTime)
+    -- ^ Optional @(start, end)@ ranges for fetching.
+    -> GeminiApiM [Transfer]
+getMyTransfers = fetchAllPages getTransferBatch trTimestamp
+  where
+    getTransferBatch :: Integer -> GeminiApiM [Transfer]
+    getTransferBatch timestamp = do
+        nonce <- makeNonce
+        let parameters = KM.fromList
+                [ ("request"        , String "/v1/transfers")
+                , ("nonce"          , toJSON nonce)
+                , ("timestamp"      , toJSON $ timestampToSeconds timestamp)
+                , ("limit_transfers", Number 50)
+                ]
+        responseBody
+            <$> protectedGeminiRequest
+                    POST
+                    (https "api.gemini.com" /: "v1" /: "transfers")
+                    parameters
 
 -- | A single fiat or cryptocurrency transfer, credit, deposit, or withdrawal.
 data Transfer = Transfer
@@ -244,23 +282,26 @@ instance FromJSON Transfer where
 -- EARN HISTORY
 
 -- | Fetch all my Gemini Earn Transactions
-getMyEarnTransactions :: GeminiApiM [EarnHistory]
-getMyEarnTransactions = do
-    nonce <- makeNonce
-    -- TODO: take optional start & end time, limit results to only those
-    -- within range.
-    -- TODO: if response gives 500 results, bump start time & re-fetch
-    -- until no results.
-    let parameters = KM.fromList
-            [ ("request", String "/v1/earn/history")
-            , ("nonce"  , Number $ fromInteger nonce)
-            , ("limit"  , Number 500)
-            ]
-    responseBody
-        <$> protectedGeminiRequest
-                POST
-                (https "api.gemini.com" /: "v1" /: "earn" /: "history")
-                parameters
+getMyEarnTransactions
+    :: Maybe (UTCTime, UTCTime) -> GeminiApiM [EarnTransaction]
+getMyEarnTransactions = fetchAllPages getEarnBatch etTimestamp
+  where
+    getEarnBatch :: Integer -> GeminiApiM [EarnTransaction]
+    getEarnBatch timestamp = do
+        nonce <- makeNonce
+        let parameters = KM.fromList
+                [ ("request", String "/v1/earn/history")
+                , ("nonce"  , toJSON nonce)
+                , ("since"  , toJSON timestamp)
+                , ("sortAsc", toJSON True)
+                , ("limit"  , Number 500)
+                ]
+        concatMap @[] ehTransactions
+            .   responseBody
+            <$> protectedGeminiRequest
+                    POST
+                    (https "api.gemini.com" /: "v1" /: "earn" /: "history")
+                    parameters
 
 -- | Earn Transactions grouped by a Provider/Borrower.
 data EarnHistory = EarnHistory
@@ -325,6 +366,69 @@ protectedGeminiRequest method url body = do
             ]
     req method url NoReqBody jsonResponse authorizedOptions
 
+-- | Attempt a request & retry if a @429@ @RateLimited@ error is returned.
+-- We attempt to parse the retry wait time from the @message@ field but
+-- fallback to one second.
+retryWithRateLimit :: (MonadHttp m, MonadCatch m) => m a -> m a
+retryWithRateLimit request = try request >>= \case
+    Left e@(VanillaHttpException (HttpExceptionRequest _ (StatusCodeException (statusCode . responseStatus -> 429) body)))
+        -> case eitherDecode $ LBS.fromStrict body of
+            Left  _ -> handleHttpException e
+            Right r -> if geReason r == "RateLimited"
+                then
+                    let msToWait =
+                            fromMaybe 1000
+                                . listToMaybe
+                                . mapMaybe (readMaybe . T.unpack)
+                                . T.words
+                                $ geMessage r
+                    in  do
+                            liftIO . threadDelay $ msToWait * 1000
+                            retryWithRateLimit request
+                else handleHttpException e
+    Left  e -> handleHttpException e
+    Right r -> return r
+
+-- | Fetch all pages of a response by calling the API with increasing
+-- timestamp fields until it returns an empty response. Takes an optional
+-- start & end date to offset the initial fetch & stop fetching early.
+fetchAllPages
+    :: (Integer -> GeminiApiM [a])
+    -- ^ Make a request for items above the given milliseconds @timestamp@
+    -> (a -> POSIXTime)
+    -- ^ Pull a timestamp from an item
+    -> Maybe (UTCTime, UTCTime)
+    -- ^ Optional @(start, end)@ range
+    -> GeminiApiM [a]
+fetchAllPages mkRequest getTimestamp mbRange = do
+    let startTimestamp =
+            maybe 0 (truncate . (1000 *) . utcTimeToPOSIXSeconds . fst) mbRange
+    fetchAll [] startTimestamp
+  where
+    fetchAll prevResults timestamp = do
+        newResults <- retryWithRateLimit $ mkRequest timestamp
+        if null newResults
+            then return prevResults
+            else
+                let
+                    maxTimestamp  = maximum $ map getTimestamp newResults
+                    nextTimestamp = truncate $ 1000 * maxTimestamp + 1
+                    continueFetching =
+                        fetchAll (newResults <> prevResults) nextTimestamp
+                    filteredResults end =
+                        filter ((<= end) . getTimestamp) newResults
+                in
+                    case mbRange of
+                        Nothing -> continueFetching
+                        Just (_, utcTimeToPOSIXSeconds -> end) ->
+                            if maxTimestamp >= end
+                                then return $ filteredResults end <> prevResults
+                                else continueFetching
+
+-- | Given a timestamp in ms, convert it to a timestamp param in seconds by
+-- dividing & rounding up.
+timestampToSeconds :: Integer -> Integer
+timestampToSeconds = ceiling . (% 1000)
 
 -- | Generate a 'Crypto.MAC.HMAC.HMAC' 'SHA384' signature for an authorized
 -- API request.

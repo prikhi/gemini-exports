@@ -16,11 +16,13 @@ import           Data.Maybe                     ( catMaybes
                                                 )
 import           Data.Text                      ( Text )
 import           Data.Time                      ( LocalTime(..)
+                                                , UTCTime(..)
                                                 , ZonedTime(..)
-                                                , toGregorian
-                                                , utcToZonedTime
+                                                , fromGregorian
+                                                , getTimeZone
+                                                , timeToTimeOfDay
+                                                , zonedTimeToUTC
                                                 )
-import           Data.Time.Clock.POSIX          ( posixSecondsToUTCTime )
 import           Data.Version                   ( showVersion )
 import           System.Console.CmdArgs         ( (&=)
                                                 , Data
@@ -56,38 +58,24 @@ run :: Args -> IO ()
 run cfgArgs = do
     AppConfig {..} <- makeConfig cfgArgs
     exportData     <- runApi geminiCfg $ do
-        trades <- getMyTrades
+        trades <- getMyTrades dateRange
         let symbols = L.nub $ map tSymbol trades
         symbolDetails <- fmap M.fromList . forM symbols $ \symbol -> do
             (symbol, ) <$> getSymbolDetails symbol
         tradeExport <- fmap catMaybes . forM trades $ \t -> do
             let mbTrade = TradeExport t <$> M.lookup (tSymbol t) symbolDetails
             mapM makeExportData mbTrade
-        transfers        <- getMyTransfers
+        transfers        <- getMyTransfers dateRange
         transferExport   <- mapM (makeExportData . TransferExport) transfers
-        earnTransactions <- concatMap ehTransactions <$> getMyEarnTransactions
+        earnTransactions <- getMyEarnTransactions dateRange
         earnExport       <- mapM (makeExportData . EarnExport) earnTransactions
         return $ tradeExport <> transferExport <> earnExport
-    let csvData =
-            makeExportCsv
-                $ L.sortOn (getExportLineTimestamp . edLine)
-                $ filterYear year exportData
+    let
+        csvData = makeExportCsv
+            $ L.sortOn (getExportLineTimestamp . edLine) exportData
     if outputFile == "-"
         then LBS.putStrLn csvData
         else LBS.writeFile outputFile csvData
-  where
-    filterYear = \case
-        Nothing -> id
-        Just y  -> filter
-            (\(ExportData tz ed) ->
-                (\(edY, _, _) -> edY == y)
-                    . toGregorian
-                    . localDay
-                    . zonedTimeToLocalTime
-                    . utcToZonedTime tz
-                    . posixSecondsToUTCTime
-                    $ getExportLineTimestamp ed
-            )
 
 -- | Print some text to stderr and then exit with an error.
 exitWithError :: String -> IO a
@@ -97,7 +85,7 @@ exitWithError msg = hPutStrLn stderr ("[ERROR] " <> msg) >> exitFailure
 data AppConfig = AppConfig
     { geminiCfg  :: GeminiConfig
     , outputFile :: FilePath
-    , year       :: Maybe Integer
+    , dateRange  :: Maybe (UTCTime, UTCTime)
     }
     deriving (Show, Read, Eq, Ord)
 
@@ -115,13 +103,29 @@ makeConfig Args {..} = do
         $   argApiSecret
         <|> envApiSecret
     let geminiCfg = GeminiConfig { .. }
-    return $ AppConfig { outputFile = fromMaybe "-" argOutputFile
-                       , year       = argYear
-                       , ..
-                       }
+    dateRange <- mapM buildDateRange argYear
+    return AppConfig { outputFile = fromMaybe "-" argOutputFile, .. }
   where
+    -- | Exit with error message if value is 'Nothing'
     errorIfNothing :: String -> Maybe a -> IO a
     errorIfNothing msg = maybe (exitWithError msg) return
+    -- | Given a year, build a tuple representing the span of a year in the
+    -- user's timezone.
+    buildDateRange :: Integer -> IO (UTCTime, UTCTime)
+    buildDateRange y = do
+        let yearStart = UTCTime (fromGregorian y 1 1) 0
+            yearEnd   = UTCTime (fromGregorian y 12 31)
+                                ((23 * 60 * 60) + (59 * 60) + 59 + 0.9999)
+        (,) <$> mkZonedTime yearStart <*> mkZonedTime yearEnd
+    -- | Shift a time by the user's timezone - coercing it into a ZonedTime
+    -- and converting that back into UTC.
+    mkZonedTime :: UTCTime -> IO UTCTime
+    mkZonedTime t = do
+        tz <- getTimeZone t
+        let localTime = LocalTime (utctDay t) (timeToTimeOfDay $ utctDayTime t)
+            zonedTime = ZonedTime localTime tz
+        return $ zonedTimeToUTC zonedTime
+
 
 
 -- | CLI arguments supported by the executable.

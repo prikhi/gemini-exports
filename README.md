@@ -16,8 +16,8 @@ $ stack run -- --help
 
 TODO:
 
-* Paginated api requests (w/ start/stop dates)
 * Config file support
+* More `--help` docs
 
 [get-stack]: https://docs.haskellstack.org/en/stable/README/
 
