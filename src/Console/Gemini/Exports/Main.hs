@@ -7,10 +7,17 @@ module Console.Gemini.Exports.Main
     ( run
     , getArgs
     , Args(..)
+    , loadConfigFile
+    , ConfigFile(..)
     ) where
 
 import           Control.Applicative            ( (<|>) )
+import           Control.Exception.Safe         ( try )
 import           Control.Monad                  ( forM )
+import           Data.Aeson                     ( (.:?)
+                                                , FromJSON(..)
+                                                , withObject
+                                                )
 import           Data.Maybe                     ( catMaybes
                                                 , fromMaybe
                                                 )
@@ -24,6 +31,10 @@ import           Data.Time                      ( LocalTime(..)
                                                 , zonedTimeToUTC
                                                 )
 import           Data.Version                   ( showVersion )
+import           Data.Yaml                      ( prettyPrintParseException )
+import           Data.Yaml.Config               ( ignoreEnv
+                                                , loadYamlSettings
+                                                )
 import           System.Console.CmdArgs         ( (&=)
                                                 , Data
                                                 , Typeable
@@ -37,7 +48,9 @@ import           System.Console.CmdArgs         ( (&=)
                                                 , summary
                                                 , typ
                                                 )
+import           System.Directory               ( doesFileExist )
 import           System.Environment             ( lookupEnv )
+import           System.Environment.XDG.BaseDir ( getUserConfigFile )
 import           System.Exit                    ( exitFailure )
 import           System.IO                      ( hPutStrLn
                                                 , stderr
@@ -54,9 +67,9 @@ import qualified Data.Text                     as T
 
 
 -- | Run the executable.
-run :: Args -> IO ()
-run cfgArgs = do
-    AppConfig {..} <- makeConfig cfgArgs
+run :: ConfigFile -> Args -> IO ()
+run cfg cfgArgs = do
+    AppConfig {..} <- makeConfig cfg cfgArgs
     exportData     <- runApi geminiCfg $ do
         trades <- getMyTrades dateRange
         let symbols = L.nub $ map tSymbol trades
@@ -82,6 +95,8 @@ exitWithError :: String -> IO a
 exitWithError msg = hPutStrLn stderr ("[ERROR] " <> msg) >> exitFailure
 
 
+-- CONFIGURATION
+
 data AppConfig = AppConfig
     { geminiCfg  :: GeminiConfig
     , outputFile :: FilePath
@@ -89,19 +104,25 @@ data AppConfig = AppConfig
     }
     deriving (Show, Read, Eq, Ord)
 
-makeConfig :: Args -> IO AppConfig
-makeConfig Args {..} = do
+-- | Pull Environmental variables, then merge the config file, env vars,
+-- and cli args into an AppConfig.
+--
+-- Exit with an error if we cannot construct a 'GeminiConfig'.
+makeConfig :: ConfigFile -> Args -> IO AppConfig
+makeConfig ConfigFile {..} Args {..} = do
     envApiKey <- fmap T.pack <$> lookupEnv "GEMINI_API_KEY"
     gcApiKey  <-
         errorIfNothing "Pass a Gemini API Key with `-k` or $GEMINI_API_KEY."
         $   argApiKey
         <|> envApiKey
+        <|> cfgApiKey
     envApiSecret <- fmap T.pack <$> lookupEnv "GEMINI_API_SECRET"
     gcApiSecret  <-
         errorIfNothing
             "Pass a Gemini API Secret with `-s` or $GEMINI_API_SECRET."
         $   argApiSecret
         <|> envApiSecret
+        <|> cfgApiSecret
     let geminiCfg = GeminiConfig { .. }
     dateRange <- mapM buildDateRange argYear
     return AppConfig { outputFile = fromMaybe "-" argOutputFile, .. }
@@ -127,6 +148,42 @@ makeConfig Args {..} = do
         return $ zonedTimeToUTC zonedTime
 
 
+-- CONFIG FILE
+
+-- | Optional configuration data parsed from a yaml file.
+data ConfigFile = ConfigFile
+    { cfgApiKey    :: Maybe Text
+    , cfgApiSecret :: Maybe Text
+    }
+    deriving (Show, Read, Eq, Ord)
+
+instance FromJSON ConfigFile where
+    parseJSON = withObject "ConfigFile" $ \o -> do
+        cfgApiKey    <- o .:? "api-key"
+        cfgApiSecret <- o .:? "api-secret"
+        return ConfigFile { .. }
+
+-- | Attempt to read a 'ConfigFile' from
+-- @$XDG_CONFIG_HOME\/gemini-exports\/config.yaml@. Print any parsing
+-- errors to 'stderr'.
+loadConfigFile :: IO ConfigFile
+loadConfigFile = do
+    configPath   <- getUserConfigFile "gemini-exports" "config.yaml"
+    configExists <- doesFileExist configPath
+    if configExists
+        then try (loadYamlSettings [configPath] [] ignoreEnv) >>= \case
+            Left (lines . prettyPrintParseException -> errorMsgs) ->
+                hPutStrLn stderr "[WARN] Invalid Configuration Format:"
+                    >> mapM_ (hPutStrLn stderr . ("\t" <>)) errorMsgs
+                    >> return defaultConfig
+            Right cfg -> return cfg
+        else return defaultConfig
+  where
+    defaultConfig :: ConfigFile
+    defaultConfig = ConfigFile Nothing Nothing
+
+
+-- CLI ARGS
 
 -- | CLI arguments supported by the executable.
 data Args = Args

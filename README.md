@@ -16,7 +16,6 @@ $ stack run -- --help
 
 TODO:
 
-* Config file support
 * More `--help` docs
 
 [get-stack]: https://docs.haskellstack.org/en/stable/README/

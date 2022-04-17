@@ -55,6 +55,7 @@ library
     , cmdargs >=0.10 && <1
     , containers <1
     , cryptonite <1
+    , directory <2
     , http-client <1
     , http-types <1
     , mtl <3
@@ -63,6 +64,8 @@ library
     , scientific <1
     , text <3
     , time <2
+    , xdg-basedir <1
+    , yaml <1
   default-language: Haskell2010
 
 executable gemini-exports
