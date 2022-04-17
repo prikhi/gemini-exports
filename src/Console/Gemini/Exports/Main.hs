@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
 {- | CLI application harness.
 
@@ -40,6 +41,7 @@ import           System.Console.CmdArgs         ( (&=)
                                                 , Typeable
                                                 , cmdArgs
                                                 , def
+                                                , details
                                                 , explicit
                                                 , help
                                                 , helpArg
@@ -55,6 +57,7 @@ import           System.Exit                    ( exitFailure )
 import           System.IO                      ( hPutStrLn
                                                 , stderr
                                                 )
+import           Text.RawString.QQ              ( r )
 
 import           Console.Gemini.Exports.Csv
 import           Paths_gemini_exports           ( version )
@@ -237,3 +240,70 @@ argSpec =
         &= program "gemini-exports"
         &= helpArg [name "h"]
         &= help "Generate CSV Exports of your Gemini Trades."
+        &= details programDetails
+
+
+programDetails :: [String]
+programDetails = lines [r|
+gemini-exports generates a CSV export of your Gemini Trades, Earn
+Transactions, & Transfers.
+
+
+DESCRIPTION
+
+By default, we will pull every single trade, transfer, and income you have
+made on Gemini & print them out in chronological order with the following
+fields:
+
+   time,base-asset,quote-asset,type,description,price,quantity,total,fee,fee-currency,trade-id
+
+Trades have blank descriptions.
+
+Transfers have blank quote-assets, prices, & fees and potential blank
+descriptions.
+
+Earn transactions have blank descriptions & fees and potentially blank
+quote-assets, price, & totals.
+
+
+OUTPUT FILE
+
+You can use the `-o` flag to set the file we will write the CSV data into.
+By default, the export is simply printed to stdout.
+
+Warning: the export file will always be overwritten. We do not support
+appending to an existing file.
+
+
+ENVIRONMENTAL VARIABLES
+
+Instead of passing in your API credentials via the `-k` & `-s` CLI flags,
+you can set the `$GEMINI_API_KEY` & `$GEMINI_API_SECRET` environmental
+variables.
+
+
+CONFIGURATION FILE
+
+You can also set some program options in a YAML file. We attempt to parse
+a configuration file at `$XDG_CONFIG_HOME/gemini-exports/config.yaml`. It
+supports the following top-level keys:
+
+    - `api-key`:        (string) Your Gemini API key
+    - `api-secret`:     (string) Your Gemini API secret
+
+Environmental variables will override any configuration options, and CLI
+flags will override both environmental variables & configuration file
+options.
+
+
+USAGE EXAMPLES
+
+Fetch all my trades, deposits, withdrawals, & earn transactions:
+    gemini-exports -k <API_KEY> -s <API_SECRET>
+
+Fetch my Gemini history from 2020:
+    gemini-exports -y 2020
+
+Fetch my history from 2022, write them to a file:
+    gemini-exports -y 2022 -o 2022-gemini-history.csv
+|]
