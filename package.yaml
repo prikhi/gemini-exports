@@ -34,7 +34,7 @@ description: |
     fetched data to a CSV file.
 
     You can install @gemini-exports@ with Stack: @stack install --resolver
-    nightly gemii-exports@. Then run the following to print out your complete
+    nightly gemini-exports@. Then run the following to print out your complete
     history:
 
     @

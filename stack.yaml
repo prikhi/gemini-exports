@@ -1,13 +1,12 @@
 ---
 
 resolver:
-  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/19/1.yaml
+  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/20/20.yaml
 
 packages:
   - .
 
-extra-deps:
-  - tasty-hedgehog-1.2.0.0
+# extra-deps: []
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
