@@ -52,7 +52,8 @@ import           Data.Aeson                     ( (.:)
                                                 , encode
                                                 , withObject
                                                 )
-import           Data.ByteString.Base64         ( encodeBase64 )
+import           Data.Base64.Types              ( extractBase64 )
+import           Data.ByteString.Base64         ( encodeBase64' )
 import           Data.Maybe                     ( fromMaybe
                                                 , listToMaybe
                                                 , mapMaybe
@@ -354,7 +355,7 @@ protectedGeminiRequest
     -> m (JsonResponse response)
 protectedGeminiRequest method url body = do
     cfg <- ask
-    let payload   = encodeUtf8 . encodeBase64 . LBS.toStrict $ encode body
+    let payload   = extractBase64 . encodeBase64' . LBS.toStrict $ encode body
         signature = createSignature cfg payload
     let authorizedOptions = mconcat
             [ header "Content-Type"       "text/plain"
