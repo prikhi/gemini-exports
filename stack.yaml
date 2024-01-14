@@ -1,12 +1,13 @@
 ---
 
 resolver:
-  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/20/20.yaml
+  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/22/5.yaml
 
 packages:
   - .
 
-# extra-deps: []
+extra-deps:
+  - base64-1.0
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
