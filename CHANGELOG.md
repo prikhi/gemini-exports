@@ -2,8 +2,10 @@
 
 ## master
 
-* Change crypto library from `cryptonite` to `crypton`.
 
+## v0.1.0.2
+
+* Change crypto library from `cryptonite` to `crypton`.
 
 ## v0.1.0.1
 
