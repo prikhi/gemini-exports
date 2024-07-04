@@ -13,8 +13,8 @@ packages:
     hackage: base64-1.0
 snapshots:
 - completed:
-    sha256: 90e6fcdcf6706918ef022ab01214828c550ee637a2d50f4fe96b15742b8bced1
-    size: 714102
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/22/5.yaml
+    sha256: bc144ddf301a5c99f2cf51c7de50279ba144fd4486cb3c66f87ed761d6bbf6e9
+    size: 719131
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/22/27.yaml
   original:
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/22/5.yaml
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/22/27.yaml

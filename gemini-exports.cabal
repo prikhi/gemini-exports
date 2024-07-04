@@ -67,7 +67,7 @@ library
     , cassava <1
     , cmdargs >=0.10 && <1
     , containers <1
-    , cryptonite <1
+    , crypton <2
     , directory <2
     , http-client <1
     , http-types <1
