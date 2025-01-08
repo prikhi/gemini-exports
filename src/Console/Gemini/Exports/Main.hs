@@ -1,97 +1,104 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
-{- | CLI application harness.
 
--}
+-- | CLI application harness.
 module Console.Gemini.Exports.Main
     ( run
     , getArgs
-    , Args(..)
+    , Args (..)
     , loadConfigFile
-    , ConfigFile(..)
+    , ConfigFile (..)
     ) where
 
-import           Control.Applicative            ( (<|>) )
-import           Control.Exception.Safe         ( try )
-import           Control.Monad                  ( forM )
-import           Data.Aeson                     ( (.:?)
-                                                , FromJSON(..)
-                                                , withObject
-                                                )
-import           Data.Maybe                     ( catMaybes
-                                                , fromMaybe
-                                                )
-import           Data.Text                      ( Text )
-import           Data.Time                      ( LocalTime(..)
-                                                , UTCTime(..)
-                                                , ZonedTime(..)
-                                                , fromGregorian
-                                                , getTimeZone
-                                                , timeToTimeOfDay
-                                                , zonedTimeToUTC
-                                                )
-import           Data.Version                   ( showVersion )
-import           Data.Yaml                      ( prettyPrintParseException )
-import           Data.Yaml.Config               ( ignoreEnv
-                                                , loadYamlSettings
-                                                )
-import           System.Console.CmdArgs         ( (&=)
-                                                , Data
-                                                , Typeable
-                                                , cmdArgs
-                                                , def
-                                                , details
-                                                , explicit
-                                                , help
-                                                , helpArg
-                                                , name
-                                                , program
-                                                , summary
-                                                , typ
-                                                )
-import           System.Directory               ( doesFileExist )
-import           System.Environment             ( lookupEnv )
-import           System.Environment.XDG.BaseDir ( getUserConfigFile )
-import           System.Exit                    ( exitFailure )
-import           System.IO                      ( hPutStrLn
-                                                , stderr
-                                                )
-import           Text.RawString.QQ              ( r )
+import Control.Applicative ((<|>))
+import Control.Exception.Safe (try)
+import Control.Monad (forM)
+import Data.Aeson
+    ( FromJSON (..)
+    , withObject
+    , (.:?)
+    )
+import Data.Maybe
+    ( catMaybes
+    , fromMaybe
+    )
+import Data.Text (Text)
+import Data.Time
+    ( LocalTime (..)
+    , UTCTime (..)
+    , ZonedTime (..)
+    , fromGregorian
+    , getTimeZone
+    , timeToTimeOfDay
+    , zonedTimeToUTC
+    )
+import Data.Version (showVersion)
+import Data.Yaml (prettyPrintParseException)
+import Data.Yaml.Config
+    ( ignoreEnv
+    , loadYamlSettings
+    )
+import System.Console.CmdArgs
+    ( Data
+    , Typeable
+    , cmdArgs
+    , def
+    , details
+    , explicit
+    , help
+    , helpArg
+    , name
+    , program
+    , summary
+    , typ
+    , (&=)
+    )
+import System.Directory (doesFileExist)
+import System.Environment (lookupEnv)
+import System.Environment.XDG.BaseDir (getUserConfigFile)
+import System.Exit (exitFailure)
+import System.IO
+    ( hPutStrLn
+    , stderr
+    )
+import Text.RawString.QQ (r)
 
-import           Console.Gemini.Exports.Csv
-import           Paths_gemini_exports           ( version )
-import           Web.Gemini
+import Console.Gemini.Exports.Csv
+import Paths_gemini_exports (version)
+import Web.Gemini
 
-import qualified Data.ByteString.Lazy.Char8    as LBS
-import qualified Data.List                     as L
-import qualified Data.Map.Strict               as M
-import qualified Data.Text                     as T
+import qualified Data.ByteString.Lazy.Char8 as LBS
+import qualified Data.List as L
+import qualified Data.Map.Strict as M
+import qualified Data.Text as T
 
 
 -- | Run the executable.
 run :: ConfigFile -> Args -> IO ()
 run cfg cfgArgs = do
     AppConfig {..} <- makeConfig cfg cfgArgs
-    exportData     <- runApi geminiCfg $ do
+    exportData <- runApi geminiCfg $ do
         trades <- getMyTrades dateRange
         let symbols = L.nub $ map tSymbol trades
         symbolDetails <- fmap M.fromList . forM symbols $ \symbol -> do
-            (symbol, ) <$> getSymbolDetails symbol
+            (symbol,) <$> getSymbolDetails symbol
         tradeExport <- fmap catMaybes . forM trades $ \t -> do
             let mbTrade = TradeExport t <$> M.lookup (tSymbol t) symbolDetails
             mapM makeExportData mbTrade
-        transfers        <- getMyTransfers dateRange
-        transferExport   <- mapM (makeExportData . TransferExport) transfers
+        transfers <- getMyTransfers dateRange
+        transferExport <- mapM (makeExportData . TransferExport) transfers
         earnTransactions <- getMyEarnTransactions dateRange
-        earnExport       <- mapM (makeExportData . EarnExport) earnTransactions
+        earnExport <- mapM (makeExportData . EarnExport) earnTransactions
         return $ tradeExport <> transferExport <> earnExport
     let
-        csvData = makeExportCsv
-            $ L.sortOn (getExportLineTimestamp . edLine) exportData
+        csvData =
+            makeExportCsv $
+                L.sortOn (getExportLineTimestamp . edLine) exportData
     if outputFile == "-"
         then LBS.putStrLn csvData
         else LBS.writeFile outputFile csvData
+
 
 -- | Print some text to stderr and then exit with an error.
 exitWithError :: String -> IO a
@@ -101,11 +108,12 @@ exitWithError msg = hPutStrLn stderr ("[ERROR] " <> msg) >> exitFailure
 -- CONFIGURATION
 
 data AppConfig = AppConfig
-    { geminiCfg  :: GeminiConfig
+    { geminiCfg :: GeminiConfig
     , outputFile :: FilePath
-    , dateRange  :: Maybe (UTCTime, UTCTime)
+    , dateRange :: Maybe (UTCTime, UTCTime)
     }
     deriving (Show, Read, Eq, Ord)
+
 
 -- | Pull Environmental variables, then merge the config file, env vars,
 -- and cli args into an AppConfig.
@@ -114,34 +122,36 @@ data AppConfig = AppConfig
 makeConfig :: ConfigFile -> Args -> IO AppConfig
 makeConfig ConfigFile {..} Args {..} = do
     envApiKey <- fmap T.pack <$> lookupEnv "GEMINI_API_KEY"
-    gcApiKey  <-
-        errorIfNothing "Pass a Gemini API Key with `-k` or $GEMINI_API_KEY."
-        $   argApiKey
-        <|> envApiKey
-        <|> cfgApiKey
+    gcApiKey <-
+        errorIfNothing "Pass a Gemini API Key with `-k` or $GEMINI_API_KEY." $
+            argApiKey
+                <|> envApiKey
+                <|> cfgApiKey
     envApiSecret <- fmap T.pack <$> lookupEnv "GEMINI_API_SECRET"
-    gcApiSecret  <-
+    gcApiSecret <-
         errorIfNothing
             "Pass a Gemini API Secret with `-s` or $GEMINI_API_SECRET."
-        $   argApiSecret
-        <|> envApiSecret
-        <|> cfgApiSecret
-    let geminiCfg = GeminiConfig { .. }
+            $ argApiSecret
+                <|> envApiSecret
+                <|> cfgApiSecret
+    let geminiCfg = GeminiConfig {..}
     dateRange <- mapM buildDateRange argYear
-    return AppConfig { outputFile = fromMaybe "-" argOutputFile, .. }
+    return AppConfig {outputFile = fromMaybe "-" argOutputFile, ..}
   where
-    -- | Exit with error message if value is 'Nothing'
+    -- Exit with error message if value is 'Nothing'
     errorIfNothing :: String -> Maybe a -> IO a
     errorIfNothing msg = maybe (exitWithError msg) return
-    -- | Given a year, build a tuple representing the span of a year in the
+    -- Given a year, build a tuple representing the span of a year in the
     -- user's timezone.
     buildDateRange :: Integer -> IO (UTCTime, UTCTime)
     buildDateRange y = do
         let yearStart = UTCTime (fromGregorian y 1 1) 0
-            yearEnd   = UTCTime (fromGregorian y 12 31)
-                                ((23 * 60 * 60) + (59 * 60) + 59 + 0.9999)
+            yearEnd =
+                UTCTime
+                    (fromGregorian y 12 31)
+                    ((23 * 60 * 60) + (59 * 60) + 59 + 0.9999)
         (,) <$> mkZonedTime yearStart <*> mkZonedTime yearEnd
-    -- | Shift a time by the user's timezone - coercing it into a ZonedTime
+    -- Shift a time by the user's timezone - coercing it into a ZonedTime
     -- and converting that back into UTC.
     mkZonedTime :: UTCTime -> IO UTCTime
     mkZonedTime t = do
@@ -155,31 +165,34 @@ makeConfig ConfigFile {..} Args {..} = do
 
 -- | Optional configuration data parsed from a yaml file.
 data ConfigFile = ConfigFile
-    { cfgApiKey    :: Maybe Text
+    { cfgApiKey :: Maybe Text
     , cfgApiSecret :: Maybe Text
     }
     deriving (Show, Read, Eq, Ord)
 
+
 instance FromJSON ConfigFile where
     parseJSON = withObject "ConfigFile" $ \o -> do
-        cfgApiKey    <- o .:? "api-key"
+        cfgApiKey <- o .:? "api-key"
         cfgApiSecret <- o .:? "api-secret"
-        return ConfigFile { .. }
+        return ConfigFile {..}
+
 
 -- | Attempt to read a 'ConfigFile' from
 -- @$XDG_CONFIG_HOME\/gemini-exports\/config.yaml@. Print any parsing
 -- errors to 'stderr'.
 loadConfigFile :: IO ConfigFile
 loadConfigFile = do
-    configPath   <- getUserConfigFile "gemini-exports" "config.yaml"
+    configPath <- getUserConfigFile "gemini-exports" "config.yaml"
     configExists <- doesFileExist configPath
     if configExists
-        then try (loadYamlSettings [configPath] [] ignoreEnv) >>= \case
-            Left (lines . prettyPrintParseException -> errorMsgs) ->
-                hPutStrLn stderr "[WARN] Invalid Configuration Format:"
-                    >> mapM_ (hPutStrLn stderr . ("\t" <>)) errorMsgs
-                    >> return defaultConfig
-            Right cfg -> return cfg
+        then
+            try (loadYamlSettings [configPath] [] ignoreEnv) >>= \case
+                Left (lines . prettyPrintParseException -> errorMsgs) ->
+                    hPutStrLn stderr "[WARN] Invalid Configuration Format:"
+                        >> mapM_ (hPutStrLn stderr . ("\t" <>)) errorMsgs
+                        >> return defaultConfig
+                Right cfg -> return cfg
         else return defaultConfig
   where
     defaultConfig :: ConfigFile
@@ -190,10 +203,10 @@ loadConfigFile = do
 
 -- | CLI arguments supported by the executable.
 data Args = Args
-    { argApiKey     :: Maybe Text
-    , argApiSecret  :: Maybe Text
+    { argApiKey :: Maybe Text
+    , argApiSecret :: Maybe Text
     , argOutputFile :: Maybe FilePath
-    , argYear       :: Maybe Integer
+    , argYear :: Maybe Integer
     }
     deriving (Show, Read, Eq, Data, Typeable)
 
@@ -207,36 +220,40 @@ getArgs = cmdArgs argSpec
 argSpec :: Args
 argSpec =
     Args
-            { argApiKey     = def
-                              &= name "api-key"
-                              &= name "k"
-                              &= explicit
-                              &= help "Gemini API Key"
-                              &= typ "KEY"
-            , argApiSecret  = def
-                              &= name "api-secret"
-                              &= name "s"
-                              &= explicit
-                              &= help "Gemini API Secret"
-                              &= typ "SECRET"
-            , argOutputFile = Nothing
-                              &= help "File to write export to. Default: stdout"
-                              &= name "o"
-                              &= name "output-file"
-                              &= explicit
-                              &= typ "FILE"
-            , argYear       = Nothing
-                              &= help "Limit transactions to given year."
-                              &= name "y"
-                              &= name "year"
-                              &= explicit
-                              &= typ "YYYY"
-            }
+        { argApiKey =
+            def
+                &= name "api-key"
+                &= name "k"
+                &= explicit
+                &= help "Gemini API Key"
+                &= typ "KEY"
+        , argApiSecret =
+            def
+                &= name "api-secret"
+                &= name "s"
+                &= explicit
+                &= help "Gemini API Secret"
+                &= typ "SECRET"
+        , argOutputFile =
+            Nothing
+                &= help "File to write export to. Default: stdout"
+                &= name "o"
+                &= name "output-file"
+                &= explicit
+                &= typ "FILE"
+        , argYear =
+            Nothing
+                &= help "Limit transactions to given year."
+                &= name "y"
+                &= name "year"
+                &= explicit
+                &= typ "YYYY"
+        }
         &= summary
-               (  "gemini-exports v"
-               <> showVersion version
-               <> ", Pavan Rikhi 2022"
-               )
+            ( "gemini-exports v"
+                <> showVersion version
+                <> ", Pavan Rikhi 2025"
+            )
         &= program "gemini-exports"
         &= helpArg [name "h"]
         &= help "Generate CSV Exports of your Gemini Trades."
@@ -244,7 +261,9 @@ argSpec =
 
 
 programDetails :: [String]
-programDetails = lines [r|
+programDetails =
+    lines
+        [r|
 gemini-exports generates a CSV export of your Gemini Trades, Earn
 Transactions, & Transfers.
 

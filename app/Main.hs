@@ -1,10 +1,10 @@
 module Main where
 
-import           Console.Gemini.Exports.Main
+import Console.Gemini.Exports.Main
 
 
 main :: IO ()
 main = do
     args <- getArgs
-    cfg  <- loadConfigFile
+    cfg <- loadConfigFile
     run cfg args

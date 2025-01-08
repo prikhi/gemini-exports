@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.36.0.
+-- This file has been generated from package.yaml by hpack version 0.37.0.
 --
 -- see: https://github.com/sol/hpack
 
@@ -28,7 +28,7 @@ homepage:       https://github.com/prikhi/gemini-exports#readme
 bug-reports:    https://github.com/prikhi/gemini-exports/issues
 author:         Pavan Rikhi
 maintainer:     pavan.rikhi@gmail.com
-copyright:      2022 Pavan Rikhi
+copyright:      2025 Pavan Rikhi
 license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
