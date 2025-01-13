@@ -12,8 +12,9 @@ module Console.Gemini.Exports.Main
     ) where
 
 import Control.Applicative ((<|>))
-import Control.Exception.Safe (try)
+import Control.Exception.Safe (displayException, try)
 import Control.Monad (forM)
+import Control.Monad.IO.Class (liftIO)
 import Data.Aeson
     ( FromJSON (..)
     , withObject
@@ -39,6 +40,7 @@ import Data.Yaml.Config
     ( ignoreEnv
     , loadYamlSettings
     )
+import Network.HTTP.Req (handleHttpException)
 import System.Console.CmdArgs
     ( Data
     , Typeable
@@ -77,18 +79,18 @@ import qualified Data.Text as T
 -- | Run the executable.
 run :: ConfigFile -> Args -> IO ()
 run cfg cfgArgs = do
-    AppConfig {..} <- makeConfig cfg cfgArgs
+    c@AppConfig {..} <- makeConfig cfg cfgArgs
     exportData <- runApi geminiCfg $ do
-        trades <- getMyTrades dateRange
+        trades <- logOrThrow c [] $ getMyTrades dateRange
         let symbols = L.nub $ map tSymbol trades
-        symbolDetails <- fmap M.fromList . forM symbols $ \symbol -> do
-            (symbol,) <$> getSymbolDetails symbol
+        symbolDetails <- fmap (M.fromList . catMaybes) . forM symbols $ \symbol -> do
+            logOrThrow c Nothing (Just . (symbol,) <$> getSymbolDetails symbol)
         tradeExport <- fmap catMaybes . forM trades $ \t -> do
             let mbTrade = TradeExport t <$> M.lookup (tSymbol t) symbolDetails
             mapM makeExportData mbTrade
-        transfers <- getMyTransfers dateRange
+        transfers <- logOrThrow c [] $ getMyTransfers dateRange
         transferExport <- mapM (makeExportData . TransferExport) transfers
-        earnTransactions <- getMyEarnTransactions dateRange
+        earnTransactions <- logOrThrow c [] $ getMyEarnTransactions dateRange
         earnExport <- mapM (makeExportData . EarnExport) earnTransactions
         return $ tradeExport <> transferExport <> earnExport
     let
@@ -98,6 +100,23 @@ run cfg cfgArgs = do
     if outputFile == "-"
         then LBS.putStrLn csvData
         else LBS.writeFile outputFile csvData
+
+
+-- | When some API action results in an error, either log the error
+-- & return a default value or call the the 'handleHttpException' method,
+-- depending on the 'ignoreErrors' config value.
+logOrThrow :: AppConfig -> a -> GeminiApiM a -> GeminiApiM a
+logOrThrow c defVal action =
+    try action >>= \case
+        Left e ->
+            if ignoreErrors c
+                then do
+                    liftIO $ hPutStrLn stderr ("[ERROR] " <> displayException e)
+                    return defVal
+                else
+                    handleHttpException e
+        Right result ->
+            return result
 
 
 -- | Print some text to stderr and then exit with an error.
@@ -111,6 +130,7 @@ data AppConfig = AppConfig
     { geminiCfg :: GeminiConfig
     , outputFile :: FilePath
     , dateRange :: Maybe (UTCTime, UTCTime)
+    , ignoreErrors :: Bool
     }
     deriving (Show, Read, Eq, Ord)
 
@@ -136,6 +156,12 @@ makeConfig ConfigFile {..} Args {..} = do
                 <|> cfgApiSecret
     let geminiCfg = GeminiConfig {..}
     dateRange <- mapM buildDateRange argYear
+    envIgnoreErrors <- fmap (not . null) <$> lookupEnv "GEMINI_API_IGNORE_ERRORS"
+    let ignoreErrors =
+            fromMaybe False $
+                argIgnoreErrors
+                    <|> envIgnoreErrors
+                    <|> cfgIgnoreErrors
     return AppConfig {outputFile = fromMaybe "-" argOutputFile, ..}
   where
     -- Exit with error message if value is 'Nothing'
@@ -167,6 +193,7 @@ makeConfig ConfigFile {..} Args {..} = do
 data ConfigFile = ConfigFile
     { cfgApiKey :: Maybe Text
     , cfgApiSecret :: Maybe Text
+    , cfgIgnoreErrors :: Maybe Bool
     }
     deriving (Show, Read, Eq, Ord)
 
@@ -175,6 +202,7 @@ instance FromJSON ConfigFile where
     parseJSON = withObject "ConfigFile" $ \o -> do
         cfgApiKey <- o .:? "api-key"
         cfgApiSecret <- o .:? "api-secret"
+        cfgIgnoreErrors <- o .:? "ignore-errors"
         return ConfigFile {..}
 
 
@@ -196,7 +224,7 @@ loadConfigFile = do
         else return defaultConfig
   where
     defaultConfig :: ConfigFile
-    defaultConfig = ConfigFile Nothing Nothing
+    defaultConfig = ConfigFile Nothing Nothing Nothing
 
 
 -- CLI ARGS
@@ -207,6 +235,7 @@ data Args = Args
     , argApiSecret :: Maybe Text
     , argOutputFile :: Maybe FilePath
     , argYear :: Maybe Integer
+    , argIgnoreErrors :: Maybe Bool
     }
     deriving (Show, Read, Eq, Data, Typeable)
 
@@ -248,6 +277,11 @@ argSpec =
                 &= name "year"
                 &= explicit
                 &= typ "YYYY"
+        , argIgnoreErrors =
+            Nothing
+                &= help "Log, but ignore any API errors."
+                &= name "ignore-errors"
+                &= explicit
         }
         &= summary
             ( "gemini-exports v"
@@ -300,6 +334,10 @@ Instead of passing in your API credentials via the `-k` & `-s` CLI flags,
 you can set the `$GEMINI_API_KEY` & `$GEMINI_API_SECRET` environmental
 variables.
 
+Setting the `$GEMINI_API_IGNORE_ERRORS` environmental variable to
+a non-empty string will log but ignore API errors and attempt to continue
+processing.
+
 
 CONFIGURATION FILE
 
@@ -309,6 +347,7 @@ supports the following top-level keys:
 
     - `api-key`:        (string) Your Gemini API key
     - `api-secret`:     (string) Your Gemini API secret
+    - `ignore-errors`:  (bool)   Ignore API errors & process as much as possible
 
 Environmental variables will override any configuration options, and CLI
 flags will override both environmental variables & configuration file
