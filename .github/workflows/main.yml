@@ -73,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        ghc: ['9.4', '9.6', 9.8']
+        ghc: ['9.4', '9.6', '9.8']
     steps:
       - uses: actions/checkout@v2
       - name: Cache Cabal Artifacts
