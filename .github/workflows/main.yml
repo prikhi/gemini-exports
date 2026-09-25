@@ -6,8 +6,8 @@ name: CI Build
 # yamllint disable-line rule:truthy
 on:
   # Run Daily
-  schedule:
-    - cron: '0 0 * * *'
+  #schedule:
+  #  - cron: '0 0 * * *'
   # Run on Push
   push:
   # Run on Tag Creation
@@ -36,7 +36,7 @@ jobs:
         with:
           enable-stack: true
           stack-no-global: true
-      - run: stack test --fast --haddock --pedantic --resolver lts-23
+      - run: stack test --fast --haddock --pedantic --resolver lts-24
 
   # Stackage Nightly - Failures Allowed
   build-nightly:
@@ -73,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        ghc: ['9.4', '9.6', '9.8']
+        ghc: ['9.6', '9.8', '9.10']
     steps:
       - uses: actions/checkout@v4
       - name: Cache Cabal Artifacts

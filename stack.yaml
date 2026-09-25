@@ -1,7 +1,7 @@
 ---
 
 resolver:
-  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/23/11.yaml
+  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/24/60.yaml
 
 packages:
   - .
